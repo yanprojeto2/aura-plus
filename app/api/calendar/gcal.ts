@@ -9,8 +9,8 @@ function b64url(buf: Buffer) {
 }
 
 async function getAccessToken(): Promise<string> {
-  const email = process.env.GCAL_CLIENT_EMAIL!;
-  const rawKey = process.env.GCAL_PRIVATE_KEY!.replace(/\\n/g, "\n");
+  const email = process.env.GCAL_CLIENT_EMAIL!.trim();
+  const rawKey = process.env.GCAL_PRIVATE_KEY!.replace(/\\n/g, "\n").trim();
   const now = Math.floor(Date.now() / 1000);
 
   const header = b64url(Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })));
