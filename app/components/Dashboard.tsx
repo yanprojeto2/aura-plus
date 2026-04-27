@@ -1,8 +1,9 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import TaskModal from './TaskModal'
 import HabitTracker from './HabitTracker'
+import { supabase } from '../../lib/supabase'
 
 export type Priority = 'alta' | 'media' | 'baixa'
 export type Status = 'pendente' | 'em_progresso' | 'concluida' | 'atrasada'
@@ -27,74 +28,7 @@ interface DashboardProps {
   setIsModalOpen: (open: boolean) => void
 }
 
-const INITIAL_TASKS: Task[] = [
-  {
-    id: '1',
-    title: 'Revisar relatório trimestral',
-    description: 'Analisar dados de performance do Q1',
-    priority: 'alta',
-    status: 'em_progresso',
-    dueDate: '2026-03-25',
-    category: 'Trabalho',
-    createdAt: '2026-03-20',
-    weeklyTodos: { Seg: true, Ter: false, Qua: true, Qui: false, Sex: false, Sáb: false, Dom: false },
-  },
-  {
-    id: '2',
-    title: 'Academia — treino de força',
-    description: 'Peito, ombro e tríceps',
-    priority: 'media',
-    status: 'pendente',
-    dueDate: '2026-03-22',
-    category: 'Saúde',
-    createdAt: '2026-03-21',
-    weeklyTodos: { Seg: true, Ter: false, Qua: true, Qui: false, Sex: true, Sáb: false, Dom: false },
-  },
-  {
-    id: '3',
-    title: 'Ler capítulo 5 — Atomic Habits',
-    description: 'Revisar anotações e destacar insights',
-    priority: 'baixa',
-    status: 'concluida',
-    dueDate: '2026-03-21',
-    category: 'Estudos',
-    createdAt: '2026-03-19',
-    weeklyTodos: { Seg: false, Ter: false, Qua: false, Qui: true, Sex: false, Sáb: true, Dom: false },
-  },
-  {
-    id: '4',
-    title: 'Planejar viagem de férias',
-    description: 'Pesquisar hotéis e passagens para julho',
-    priority: 'media',
-    status: 'pendente',
-    dueDate: '2026-03-30',
-    category: 'Pessoal',
-    createdAt: '2026-03-20',
-    weeklyTodos: emptyWeekly(),
-  },
-  {
-    id: '5',
-    title: 'Finalizar proposta do cliente',
-    description: 'Ajustar escopo e precificação do projeto',
-    priority: 'alta',
-    status: 'atrasada',
-    dueDate: '2026-03-19',
-    category: 'Trabalho',
-    createdAt: '2026-03-18',
-    weeklyTodos: { Seg: true, Ter: true, Qua: false, Qui: false, Sex: false, Sáb: false, Dom: false },
-  },
-  {
-    id: '6',
-    title: 'Meditação matinal — 10min',
-    description: 'Mindfulness e respiração consciente',
-    priority: 'baixa',
-    status: 'concluida',
-    dueDate: '2026-03-22',
-    category: 'Saúde',
-    createdAt: '2026-03-22',
-    weeklyTodos: { Seg: true, Ter: true, Qua: true, Qui: true, Sex: true, Sáb: false, Dom: false },
-  },
-]
+const INITIAL_TASKS: Task[] = []
 
 const categoryIcon: Record<string, React.ReactNode> = {
   Trabalho: (
@@ -195,6 +129,16 @@ export default function Dashboard({ isModalOpen, setIsModalOpen }: DashboardProp
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
+  useEffect(() => {
+    supabase.from('tasks').select('*').order('created_at', { ascending: false }).then(({ data }) => {
+      if (data) setTasks(data.map(t => ({
+        id: t.id, title: t.title, description: t.description,
+        priority: t.priority, status: t.status, dueDate: t.due_date,
+        category: t.category, createdAt: t.created_at, weeklyTodos: t.weekly_todos ?? emptyWeekly()
+      })))
+    })
+  }, [])
+
   const stats = useMemo(
     () => ({
       total: tasks.length,
@@ -216,31 +160,34 @@ export default function Dashboard({ isModalOpen, setIsModalOpen }: DashboardProp
     .filter((t) => filter === 'todas' || t.status === filter)
     .filter((t) => t.title.toLowerCase().includes(search.toLowerCase()))
 
-  const addTask = (task: Omit<Task, 'id' | 'createdAt'>) => {
-    setTasks((prev) => [
-      { ...task, id: Date.now().toString(), createdAt: today, weeklyTodos: task.weeklyTodos ?? emptyWeekly() },
-      ...prev,
-    ])
+  const addTask = async (task: Omit<Task, 'id' | 'createdAt'>) => {
+    const { data } = await supabase.from('tasks').insert({
+      title: task.title, description: task.description,
+      priority: task.priority, status: task.status,
+      due_date: task.dueDate, category: task.category,
+      weekly_todos: task.weeklyTodos ?? emptyWeekly()
+    }).select().single()
+    if (data) setTasks((prev) => [{
+      id: data.id, title: data.title, description: data.description,
+      priority: data.priority, status: data.status, dueDate: data.due_date,
+      category: data.category, createdAt: data.created_at, weeklyTodos: data.weekly_todos
+    }, ...prev])
   }
 
-  const toggleWeeklyDay = (taskId: string, day: string) => {
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === taskId
-          ? { ...t, weeklyTodos: { ...emptyWeekly(), ...t.weeklyTodos, [day]: !(t.weeklyTodos ?? {})[day] } }
-          : t
-      )
-    )
+  const toggleWeeklyDay = async (taskId: string, day: string) => {
+    const task = tasks.find(t => t.id === taskId)
+    if (!task) return
+    const updated = { ...emptyWeekly(), ...task.weeklyTodos, [day]: !(task.weeklyTodos ?? {})[day] }
+    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, weeklyTodos: updated } : t))
+    await supabase.from('tasks').update({ weekly_todos: updated }).eq('id', taskId)
   }
 
-  const toggleComplete = (id: string) => {
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? { ...t, status: t.status === 'concluida' ? 'pendente' : 'concluida' }
-          : t
-      )
-    )
+  const toggleComplete = async (id: string) => {
+    const task = tasks.find(t => t.id === id)
+    if (!task) return
+    const newStatus = task.status === 'concluida' ? 'pendente' : 'concluida'
+    setTasks((prev) => prev.map((t) => t.id === id ? { ...t, status: newStatus } : t))
+    await supabase.from('tasks').update({ status: newStatus }).eq('id', id)
   }
 
   const weeklyData = [2, 4, 3, 5, 4, 6, stats.concluidas || 1]
@@ -396,7 +343,7 @@ export default function Dashboard({ isModalOpen, setIsModalOpen }: DashboardProp
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <p style={{ fontSize: 12, color: '#8A8A8A', fontWeight: 500 }}>Progresso Semanal</p>
-                    <p style={{ fontSize: 22, fontWeight: 700, color: '#fff', marginTop: 5 }}>
+                    <p style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginTop: 5 }}>
                       {stats.concluidas}{' '}
                       <span style={{ fontSize: 14, fontWeight: 500, color: '#8A8A8A' }}>tarefas</span>
                     </p>
@@ -436,7 +383,7 @@ export default function Dashboard({ isModalOpen, setIsModalOpen }: DashboardProp
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <p style={{ fontSize: 12, color: '#8A8A8A', fontWeight: 500 }}>Meta de Hoje</p>
-                    <p style={{ fontSize: 22, fontWeight: 700, color: '#fff', marginTop: 5 }}>
+                    <p style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginTop: 5 }}>
                       {todayDone}/{todayTasks.length}{' '}
                       <span style={{ fontSize: 14, fontWeight: 500, color: '#8A8A8A' }}>concluídas</span>
                     </p>

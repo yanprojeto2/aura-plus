@@ -120,7 +120,7 @@ const GlowCard: React.FC<GlowCardProps> = ({
           "--outer": "1",
           "--border-size": "calc(var(--border, 2) * 1px)",
           "--spotlight-size": "calc(var(--size, 150) * 1px)",
-          "--hue": "calc(var(--base) + (var(--gxp, 0) * var(--spread, 0)))",
+          "--hue": "220",
           backgroundImage: `radial-gradient(
             var(--spotlight-size) var(--spotlight-size) at
             calc(var(--gx, 0) * 1px) calc(var(--gy, 0) * 1px),

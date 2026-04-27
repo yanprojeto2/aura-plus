@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { LimelightNav } from "../components/ui/limelight-nav";
 import { GlowCard } from "../components/ui/spotlight-card";
@@ -10,6 +10,7 @@ const navLinks = [
   { label: "Financeiro", href: "/financeiro" },
   { label: "Gym", href: "/gym" },
   { label: "Tarefas", href: "/tarefas" },
+  { label: "Projetos", href: "/projetos" },
   { label: "Calendário", href: "/calendario" },
   { label: "Quadro dos Sonhos", href: "/quadro-dos-sonhos" },
   { label: "Configurações", href: "#" },
@@ -20,7 +21,7 @@ const MONTHS = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","A
 const EVENT_COLORS = ["bg-red-400","bg-yellow-400","bg-blue-400","bg-green-400","bg-purple-400","bg-pink-400"];
 
 interface CalEvent {
-  id: number;
+  id: string;
   title: string;
   note: string;
   date: string;
@@ -28,12 +29,6 @@ interface CalEvent {
   endTime: string;
   color: string;
 }
-
-const initialEvents: CalEvent[] = [
-  { id: 1, title: "Reunião de time", note: "Weekly updates", date: key(new Date()), startTime: "09:00", endTime: "10:00", color: "bg-blue-400" },
-  { id: 2, title: "Academia", note: "Treino de peito", date: key(new Date()), startTime: "07:00", endTime: "08:30", color: "bg-green-400" },
-  { id: 3, title: "Consulta médica", note: "Check-up anual", date: key(addDays(new Date(), 2)), startTime: "14:00", endTime: "15:00", color: "bg-yellow-400" },
-];
 
 function key(d: Date) { return d.toISOString().split("T")[0]; }
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
@@ -60,9 +55,18 @@ export default function CalendarioPage() {
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState<string>(key(today));
-  const [events, setEvents] = useState<CalEvent[]>(initialEvents);
+  const [events, setEvents] = useState<CalEvent[]>([]);
   const [modal, setModal] = useState<{ date: string } | null>(null);
   const [form, setForm] = useState({ title: "", note: "", startTime: "09:00", endTime: "10:00", color: "bg-blue-400" });
+
+  const loadEvents = useCallback(async () => {
+    try {
+      const res = await fetch("/api/calendar");
+      if (res.ok) setEvents(await res.json());
+    } catch {}
+  }, []);
+
+  useEffect(() => { loadEvents(); }, [loadEvents]);
 
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -90,13 +94,21 @@ export default function CalendarioPage() {
     setForm({ title: "", note: "", startTime: "09:00", endTime: "10:00", color: "bg-blue-400" });
   };
 
-  const saveEvent = () => {
+  const saveEvent = async () => {
     if (!form.title.trim() || !modal) return;
-    setEvents(prev => [...prev, { id: Date.now(), date: modal.date, ...form }]);
+    await fetch("/api/calendar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: form.title, note: form.note, date: modal.date, startTime: form.startTime, endTime: form.endTime }),
+    });
     setModal(null);
+    loadEvents();
   };
 
-  const deleteEvent = (id: number) => setEvents(prev => prev.filter(e => e.id !== id));
+  const deleteEvent = async (id: string) => {
+    await fetch(`/api/calendar/${id}`, { method: "DELETE" });
+    setEvents(prev => prev.filter(e => e.id !== id));
+  };
 
   return (
     <div className="min-h-screen bg-black text-white overflow-y-auto">
@@ -107,7 +119,7 @@ export default function CalendarioPage() {
           <span className="text-lg font-semibold tracking-wide">Aura+</span>
         </div>
         <LimelightNav
-          initialActive={3}
+          initialActive={5}
           items={navLinks.map(item => ({
             id: item.href,
             label: item.label,
@@ -156,12 +168,13 @@ export default function CalendarioPage() {
                 const isToday = dateKey === key(today);
                 const isSelected = dateKey === selectedDate;
                 return (
-                  <div key={i} onClick={() => setSelectedDate(dateKey)} onDoubleClick={() => openModal(dateKey)} className={!isCurrentMonth ? "opacity-25" : ""}>
-                  <GlowCard
-                    className={`
-                      p-2 min-h-[80px] cursor-pointer transition-all
-                      backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]
-                      ${isSelected ? "bg-white/[0.10] shadow-lg" : "bg-white/[0.04] hover:bg-white/[0.08]"}
+                  <div
+                    key={i}
+                    onClick={() => setSelectedDate(dateKey)}
+                    onDoubleClick={() => openModal(dateKey)}
+                    className={`p-2 min-h-[80px] cursor-pointer rounded-2xl border transition-all
+                      ${!isCurrentMonth ? "opacity-25" : ""}
+                      ${isSelected ? "bg-white/[0.10] border-white/10" : "bg-white/[0.04] border-white/[0.06]"}
                     `}
                   >
                     <span className={`text-sm font-medium w-6 h-6 flex items-center justify-center rounded-full ${isToday ? "bg-white text-black" : "text-white/70"}`}>
@@ -178,7 +191,6 @@ export default function CalendarioPage() {
                         <span className="text-[10px] text-white/30">+{dayEvents.length - 2}</span>
                       )}
                     </div>
-                  </GlowCard>
                   </div>
                 );
               })}

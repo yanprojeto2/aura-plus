@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { GlowCard } from "../components/ui/spotlight-card";
 import { LimelightNav } from "../components/ui/limelight-nav";
@@ -8,12 +8,14 @@ import { AnimateCheckbox } from "../components/ui/animate-checkbox";
 import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer,
 } from "recharts";
+import { supabase } from "../../lib/supabase";
 
 const navLinks = [
   { label: "Menu", href: "/menu" },
   { label: "Financeiro", href: "/financeiro" },
   { label: "Gym", href: "/gym" },
   { label: "Tarefas", href: "/tarefas" },
+  { label: "Projetos", href: "/projetos" },
   { label: "Calendário", href: "/calendario" },
   { label: "Quadro dos Sonhos", href: "/quadro-dos-sonhos" },
   { label: "Configurações", href: "#" },
@@ -71,38 +73,41 @@ function DraggableVideo() {
 const WEEK_DAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 
 interface WeeklyTask {
-  id: number;
+  id: number | string;
   text: string;
   days: boolean[];
 }
 
 function WeeklyTodoCard() {
-  const [tasks, setTasks] = useState<WeeklyTask[]>([
-    { id: 1, text: "Meditar 10 minutos", days: [true, false, true, false, true, false, false] },
-    { id: 2, text: "Ler 30 páginas", days: [false, true, false, true, false, true, false] },
-    { id: 3, text: "Beber 2L de água", days: [true, true, true, false, true, false, false] },
-    { id: 4, text: "Exercício físico", days: [true, false, true, false, true, false, true] },
-  ]);
+  const [tasks, setTasks] = useState<WeeklyTask[]>([]);
   const [input, setInput] = useState("");
 
-  const toggleDay = (taskId: number, dayIdx: number) => {
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === taskId
-          ? { ...t, days: t.days.map((d, i) => (i === dayIdx ? !d : d)) }
-          : t
-      )
-    );
+  useEffect(() => {
+    supabase.from('weekly_tasks').select('*').order('created_at').then(({ data }) => {
+      if (data) setTasks(data.map(t => ({ id: t.id, text: t.text, days: t.days })))
+    })
+  }, []);
+
+  const toggleDay = async (taskId: number | string, dayIdx: number) => {
+    const task = tasks.find(t => t.id === taskId)
+    if (!task) return
+    const updatedDays = task.days.map((d, i) => i === dayIdx ? !d : d)
+    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, days: updatedDays } : t))
+    await supabase.from('weekly_tasks').update({ days: updatedDays }).eq('id', taskId)
   };
 
-  const addTask = () => {
+  const addTask = async () => {
     const trimmed = input.trim();
     if (!trimmed) return;
-    setTasks((prev) => [...prev, { id: Date.now(), text: trimmed, days: Array(7).fill(false) }]);
+    const { data } = await supabase.from('weekly_tasks').insert({ text: trimmed, days: Array(7).fill(false) }).select().single()
+    if (data) setTasks((prev) => [...prev, { id: data.id, text: data.text, days: data.days }]);
     setInput("");
   };
 
-  const removeTask = (id: number) => setTasks((prev) => prev.filter((t) => t.id !== id));
+  const removeTask = async (id: number | string) => {
+    setTasks((prev) => prev.filter((t) => t.id !== id))
+    await supabase.from('weekly_tasks').delete().eq('id', id)
+  };
 
   return (
     <GlowCard glowColor="blue" className="bg-black p-6 w-full">
@@ -113,7 +118,6 @@ function WeeklyTodoCard() {
         </span>
       </div>
 
-      {/* Header dias */}
       <div className="flex items-center mb-3">
         <div className="flex-1 min-w-0" />
         <div className="flex gap-1">
@@ -124,7 +128,6 @@ function WeeklyTodoCard() {
         </div>
       </div>
 
-      {/* Tarefas */}
       <div className="space-y-2">
         {tasks.map(({ id, text, days }) => (
           <div key={id} className="flex items-center gap-2 group/row">
@@ -149,7 +152,6 @@ function WeeklyTodoCard() {
         ))}
       </div>
 
-      {/* Input */}
       <div className="flex gap-2 mt-5 pt-4 border-t border-white/5">
         <input
           value={input}
@@ -170,28 +172,40 @@ function WeeklyTodoCard() {
 }
 
 interface TodoItem {
-  id: number;
+  id: number | string;
   text: string;
   done: boolean;
 }
 
 function TodoCard({ title, initialItems }: { title: string; initialItems: string[] }) {
-  const [items, setItems] = useState<TodoItem[]>(
-    initialItems.map((text, i) => ({ id: i, text, done: false }))
-  );
+  const [items, setItems] = useState<TodoItem[]>([]);
   const [input, setInput] = useState("");
 
-  const toggle = (id: number) =>
-    setItems((prev) => prev.map((item) => item.id === id ? { ...item, done: !item.done } : item));
+  useEffect(() => {
+    supabase.from('todos').select('*').eq('list', 'profissional').order('created_at').then(({ data }) => {
+      if (data) setItems(data.map(t => ({ id: t.id, text: t.text, done: t.done })))
+    })
+  }, []);
 
-  const add = () => {
+  const toggle = async (id: number | string) => {
+    const item = items.find(i => i.id === id)
+    if (!item) return
+    setItems((prev) => prev.map((i) => i.id === id ? { ...i, done: !i.done } : i))
+    await supabase.from('todos').update({ done: !item.done }).eq('id', id)
+  };
+
+  const add = async () => {
     const trimmed = input.trim();
     if (!trimmed) return;
-    setItems((prev) => [...prev, { id: Date.now(), text: trimmed, done: false }]);
+    const { data } = await supabase.from('todos').insert({ text: trimmed, done: false, list: 'profissional' }).select().single()
+    if (data) setItems((prev) => [...prev, { id: data.id, text: data.text, done: data.done }]);
     setInput("");
   };
 
-  const remove = (id: number) => setItems((prev) => prev.filter((item) => item.id !== id));
+  const remove = async (id: number | string) => {
+    setItems((prev) => prev.filter((item) => item.id !== id))
+    await supabase.from('todos').delete().eq('id', id)
+  };
 
   return (
     <GlowCard glowColor="blue" className="bg-black p-6 flex flex-col gap-4 w-full">
@@ -253,7 +267,6 @@ function DisciplineCard() {
 
   return (
     <GlowCard glowColor="blue" className="bg-black p-6 w-full">
-      {/* Header */}
       <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
         <div>
           <h2 className="text-base font-semibold text-white">Seu Nível de Disciplina</h2>
@@ -276,9 +289,7 @@ function DisciplineCard() {
         </div>
       </div>
 
-      {/* Body */}
       <div className="flex gap-6 items-center flex-wrap">
-        {/* Stats */}
         <div className="flex flex-col gap-4 flex-1 min-w-[160px]">
           {[
             { label: "Média",  value: d.media  },
@@ -292,7 +303,6 @@ function DisciplineCard() {
             </div>
           ))}
 
-          {/* Progress circle */}
           <div className="flex items-center gap-3 mt-1">
             <svg viewBox="0 0 36 36" className="w-10 h-10 flex-shrink-0 -rotate-90">
               <path
@@ -312,7 +322,6 @@ function DisciplineCard() {
           </div>
         </div>
 
-        {/* Radar chart */}
         <div className="flex-[1.2] min-w-[200px] max-w-[300px] h-[220px]">
           <ResponsiveContainer width="100%" height="100%">
             <RadarChart data={radarData} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
@@ -337,10 +346,165 @@ function DisciplineCard() {
   );
 }
 
+/* ─── Contas a Pagar Hoje ─── */
+function ContasHojeCard() {
+  const [contas, setContas] = useState<{ id: number; nome: string; valor: number; status: string; categoria: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const d = new Date();
+    const hoje = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    supabase
+      .from("financeiro_despesas")
+      .select("id,nome,valor,status,categoria")
+      .eq("data", hoje)
+      .in("status", ["Pendente", "Vencida"])
+      .order("valor", { ascending: false })
+      .then(({ data }) => {
+        setContas(data ?? []);
+        setLoading(false);
+      });
+  }, []);
+
+  const total = contas.reduce((a, c) => a + Number(c.valor), 0);
+  const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  return (
+    <GlowCard glowColor="blue" className="bg-black p-6 w-full">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-base font-semibold text-white">Contas a Pagar Hoje</h2>
+          <p className="text-[11px] text-white/30 mt-0.5">
+            {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}
+          </p>
+        </div>
+        {total > 0 && (
+          <div className="text-right">
+            <p className="text-[10px] text-white/40 uppercase tracking-wider">Total</p>
+            <p className="text-lg font-bold text-white">R${fmtBRL(total)}</p>
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <p className="text-xs text-white/20 text-center py-6">Carregando...</p>
+      ) : contas.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 py-8">
+          <span className="text-3xl">🎉</span>
+          <p className="text-sm text-white/40">Nenhuma conta para hoje</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {contas.map(c => (
+            <div key={c.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${c.status === "Vencida" ? "bg-red-500" : "bg-yellow-400"}`} />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-white truncate">{c.nome}</p>
+                  {c.categoria && <p className="text-[10px] text-white/30">{c.categoria}</p>}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className={`text-[10px] px-2 py-0.5 rounded-full ${c.status === "Vencida" ? "bg-white/10 text-white/70" : "bg-yellow-500/20 text-yellow-400"}`}>
+                  {c.status}
+                </span>
+                <p className="text-sm font-bold text-white">R${fmtBRL(Number(c.valor))}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </GlowCard>
+  );
+}
+
+/* ─── Pixel Art Agents ─── */
+function PixelChar({ grid, scale = 4 }: { grid: (string | null)[][]; scale?: number }) {
+  const h = grid.length, w = grid[0].length;
+  return (
+    <svg width={w * scale} height={h * scale} style={{ imageRendering: "pixelated", display: "block" }}>
+      {grid.flatMap((row, y) =>
+        row.map((color, x) =>
+          color ? <rect key={`${x}-${y}`} x={x * scale} y={y * scale} width={scale} height={scale} fill={color} /> : null
+        )
+      )}
+    </svg>
+  );
+}
+
+function makeChar(H: string, B: string, T: string, P: string, SH: string): (string | null)[][] {
+  const S = "#f4c89a", E = "#2d1b00", M = "#c0392b", N = null;
+  return [
+    [N,N,N,H,H,H,H,H,H,N,N,N],
+    [N,N,H,H,H,H,H,H,H,H,N,N],
+    [N,N,S,S,S,S,S,S,S,S,N,N],
+    [N,S,S,S,S,S,S,S,S,S,S,N],
+    [N,S,S,E,S,S,S,S,E,S,S,N],
+    [N,S,S,S,S,S,S,S,S,S,S,N],
+    [N,S,S,S,M,M,M,M,S,S,S,N],
+    [N,N,S,S,S,S,S,S,S,S,N,N],
+    [N,B,B,B,B,B,B,B,B,B,B,N],
+    [B,B,B,B,B,B,B,B,B,B,B,B],
+    [N,B,B,T,T,T,T,T,T,B,B,N],
+    [N,B,B,T,T,T,T,T,T,B,B,N],
+    [N,B,B,T,T,T,T,T,T,B,B,N],
+    [N,N,P,P,P,P,P,P,P,P,N,N],
+    [N,N,P,P,P,P,P,P,P,P,N,N],
+    [N,N,P,P,N,N,N,N,P,P,N,N],
+    [N,N,P,P,N,N,N,N,P,P,N,N],
+    [N,N,SH,SH,N,N,N,N,SH,SH,N,N],
+  ];
+}
+
+const AGENTS = [
+  { nome: "Kender",  funcao: "Agente Financeiro", char: makeChar("#1a0a00","#1e40af","#fbbf24","#374151","#111827"), glow: "#3b82f6" },
+  { nome: "Stack",   funcao: "Agente Gym",         char: makeChar("#7c2d12","#dc2626","#dc2626","#111827","#f8fafc"), glow: "#ef4444" },
+  { nome: "Raquel",  funcao: "Agente Tarefas",     char: makeChar("#fde68a","#db2777","#f9a8d4","#1d4ed8","#dc2626"), glow: "#ec4899" },
+  { nome: "Dani",    funcao: "Agente Calendário",  char: makeChar("#1a1a1a","#7c3aed","#a78bfa","#1a1a1a","#7c3aed"), glow: "#a855f7" },
+  { nome: "Suzan",   funcao: "Agente Projetos",    char: makeChar("#b91c1c","#d97706","#fbbf24","#78350f","#451a03"), glow: "#f59e0b" },
+];
+
+function AgentsCard() {
+  return (
+    <GlowCard glowColor="blue" className="bg-black p-6 w-full">
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-base font-semibold text-white">Agentes Disponíveis</h2>
+        <span className="text-xs text-white/30">{AGENTS.length} agentes ativos</span>
+      </div>
+      <div className="grid grid-cols-5 gap-2">
+        {AGENTS.map(agent => (
+          <div key={agent.nome} className="flex flex-col items-center gap-2 group cursor-default">
+            {/* Pixel art frame */}
+            <div
+              className="relative flex items-center justify-center rounded-xl p-3 transition-all duration-200 group-hover:scale-105"
+              style={{ background: "linear-gradient(135deg, #0f0f0f, #1a1a1a)", boxShadow: `0 0 0 1px #ffffff10, 0 4px 20px ${agent.glow}30` }}
+            >
+              <div
+                className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{ background: `radial-gradient(circle at 50% 80%, ${agent.glow}20, transparent 70%)` }}
+              />
+              <PixelChar grid={agent.char} scale={4} />
+            </div>
+            {/* Info */}
+            <div className="text-center">
+              <p className="text-sm font-semibold text-white leading-none">{agent.nome}</p>
+              <p className="text-[10px] text-white/40 mt-0.5 leading-tight">{agent.funcao}</p>
+            </div>
+            {/* Online dot */}
+            <div className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[10px] text-emerald-400/70">online</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </GlowCard>
+  );
+}
+
 function ButlerCard() {
   return (
     <GlowCard glowColor="blue" className="bg-black w-full flex flex-col">
-      {/* Vídeo centralizado */}
       <div className="flex items-center justify-center bg-black px-4 pt-8 pb-4">
         <video
           src="/butler.mov"
@@ -352,8 +516,6 @@ function ButlerCard() {
           style={{ width: "100%", maxHeight: "150px", backgroundColor: "black" }}
         />
       </div>
-
-      {/* Rodapé */}
       <div className="p-5 flex flex-col gap-3 bg-black">
         <div className="text-center">
           <h2 className="text-base font-semibold text-white">Fale com o seu Butler</h2>
@@ -407,10 +569,10 @@ export default function MenuPage() {
 
           <div className="grid grid-cols-2 gap-3 z-20">
             {[
-              { label: "Tarefas hoje", value: "8" },
-              { label: "Concluídas", value: "5" },
-              { label: "Em aberto", value: "3" },
-              { label: "Esta semana", value: "24" },
+              { label: "Tarefas hoje", value: "0" },
+              { label: "Concluídas", value: "0" },
+              { label: "Em aberto", value: "0" },
+              { label: "Esta semana", value: "0" },
             ].map(({ label, value }, i) => (
               <div key={i} className="bg-black/40 backdrop-blur-sm rounded-xl px-4 py-3 min-w-[130px]">
                 <p className="text-[11px] text-gray-300 mb-1">{label}</p>
@@ -428,12 +590,7 @@ export default function MenuPage() {
           <div className="lg:col-span-1 flex">
             <TodoCard
               title="Tarefas profissionais"
-              initialItems={[
-                "Enviar relatório semanal",
-                "Reunião com o time às 15h",
-                "Revisar contratos pendentes",
-                "Atualizar planilha de metas",
-              ]}
+              initialItems={[]}
             />
           </div>
           <div className="lg:col-span-2 flex">
@@ -441,7 +598,13 @@ export default function MenuPage() {
           </div>
         </div>
 
-        {/* Linha inferior — discipline + próximo card */}
+        {/* Contas a Pagar Hoje + Agentes */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <ContasHojeCard />
+          <AgentsCard />
+        </div>
+
+        {/* Linha inferior */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <DisciplineCard />
         </div>

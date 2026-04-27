@@ -10,6 +10,7 @@ const navLinks = [
   { label: "Financeiro", href: "/financeiro" },
   { label: "Gym", href: "/gym" },
   { label: "Tarefas", href: "/tarefas" },
+  { label: "Projetos", href: "/projetos" },
   { label: "Calendário", href: "/calendario" },
   { label: "Quadro dos Sonhos", href: "/quadro-dos-sonhos" },
   { label: "Configurações", href: "#" },
@@ -81,7 +82,7 @@ export default function QuadroDosSonhosPage() {
           <span className="text-lg font-semibold tracking-wide">Aura+</span>
         </div>
         <LimelightNav
-          initialActive={4}
+          initialActive={6}
           items={navLinks.map(item => ({
             id: item.href,
             label: item.label,

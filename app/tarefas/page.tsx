@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "../../lib/supabase";
 import { useRouter } from "next/navigation";
 import { LimelightNav } from "../components/ui/limelight-nav";
 import { GlowCard } from "../components/ui/spotlight-card";
@@ -17,63 +18,42 @@ const navLinks = [
   { label: "Configurações",     href: "#" },
 ];
 
-const defaultPriority: TaskItem[] = [
-  {
-    id: 1,
-    title: "Revisar orçamento trimestral",
-    subTitle: "Análise de gastos e projeção para os próximos 3 meses",
-    img: "https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=200&h=200&fit=crop&q=80",
-    tag: "Finanças",
-  },
-  {
-    id: 2,
-    title: "Reunião com o time às 15h",
-    subTitle: "Alinhamento de metas e revisão de entregas da semana",
-    img: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=200&h=200&fit=crop&q=80",
-    tag: "Trabalho",
-  },
-  {
-    id: 3,
-    title: "Treino — Peito e Tríceps",
-    subTitle: "Supino, crucifixo, tríceps pulley — 4 séries cada",
-    img: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=200&h=200&fit=crop&q=80",
-    tag: "Saúde",
-  },
-  {
-    id: 4,
-    title: "Ler 30 páginas",
-    subTitle: "Continuar leitura de Pai Rico, Pai Pobre — cap. 5",
-    img: "https://images.unsplash.com/photo-1512820790803-83ca734da794?w=200&h=200&fit=crop&q=80",
-    tag: "Desenvolvimento",
-  },
-];
+const defaultPriority: TaskItem[] = [];
 
 interface TodoItem { id: number; text: string; done: boolean; }
 
-const initialItems: TodoItem[] = [
-  { id: 1, text: "Agendar consulta médica",      done: false },
-  { id: 2, text: "Renovar seguro do carro",       done: true  },
-  { id: 3, text: "Ligar para o banco",            done: false },
-  { id: 4, text: "Enviar relatório semanal",      done: false },
-  { id: 5, text: "Atualizar planilha de metas",   done: true  },
-];
+const initialItems: TodoItem[] = [];
 
 export default function TarefasPage() {
   const router = useRouter();
   const [tasks, setTasks] = useState<TodoItem[]>(initialItems);
   const [input, setInput] = useState("");
 
-  const toggle = (id: number) =>
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
+  useEffect(() => {
+    supabase.from('todos').select('*').eq('list', 'tarefas').order('created_at').then(({ data }) => {
+      if (data) setTasks(data.map(t => ({ id: t.id, text: t.text, done: t.done })))
+    })
+  }, []);
 
-  const add = () => {
+  const toggle = async (id: number | string) => {
+    const task = tasks.find(t => t.id === id)
+    if (!task) return
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t))
+    await supabase.from('todos').update({ done: !task.done }).eq('id', id)
+  };
+
+  const add = async () => {
     const trimmed = input.trim();
     if (!trimmed) return;
-    setTasks(prev => [...prev, { id: Date.now(), text: trimmed, done: false }]);
+    const { data } = await supabase.from('todos').insert({ text: trimmed, done: false, list: 'tarefas' }).select().single()
+    if (data) setTasks(prev => [...prev, { id: data.id, text: data.text, done: data.done }]);
     setInput("");
   };
 
-  const remove = (id: number) => setTasks(prev => prev.filter(t => t.id !== id));
+  const remove = async (id: number | string) => {
+    setTasks(prev => prev.filter(t => t.id !== id))
+    await supabase.from('todos').delete().eq('id', id)
+  };
 
   const done  = tasks.filter(t => t.done).length;
   const total = tasks.length;

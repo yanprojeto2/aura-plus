@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from '../../lib/supabase'
 
 interface Habit {
   id: string
@@ -8,12 +9,7 @@ interface Habit {
   completions: Record<string, boolean>
 }
 
-const INITIAL_HABITS: Habit[] = [
-  { id: '1', name: 'Treinar', completions: {} },
-  { id: '2', name: 'Meditar', completions: {} },
-  { id: '3', name: 'Fazer Dieta', completions: {} },
-  { id: '4', name: 'Ler Livro', completions: {} },
-]
+const INITIAL_HABITS: Habit[] = []
 
 // Sunday → Saturday initials in PT-BR
 const DAY_LABELS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']
@@ -48,26 +44,28 @@ export default function HabitTracker() {
   const [isAdding, setIsAdding] = useState(false)
   const [newName, setNewName] = useState('')
 
+  useEffect(() => {
+    supabase.from('habits').select('*').order('created_at').then(({ data }) => {
+      if (data) setHabits(data.map(h => ({ id: h.id, name: h.name, completions: h.completions ?? {} })))
+    })
+  }, [])
+
   const weekDates = getWeekDates(weekOffset)
   const todayKey = dateKey(new Date())
 
-  const toggle = (habitId: string, d: Date) => {
+  const toggle = async (habitId: string, d: Date) => {
     const key = dateKey(d)
-    setHabits((prev) =>
-      prev.map((h) =>
-        h.id === habitId
-          ? { ...h, completions: { ...h.completions, [key]: !h.completions[key] } }
-          : h
-      )
-    )
+    const habit = habits.find(h => h.id === habitId)
+    if (!habit) return
+    const updated = { ...habit.completions, [key]: !habit.completions[key] }
+    setHabits((prev) => prev.map((h) => h.id === habitId ? { ...h, completions: updated } : h))
+    await supabase.from('habits').update({ completions: updated }).eq('id', habitId)
   }
 
-  const addHabit = () => {
+  const addHabit = async () => {
     if (!newName.trim()) return
-    setHabits((prev) => [
-      ...prev,
-      { id: Date.now().toString(), name: newName.trim(), completions: {} },
-    ])
+    const { data } = await supabase.from('habits').insert({ name: newName.trim(), completions: {} }).select().single()
+    if (data) setHabits((prev) => [...prev, { id: data.id, name: data.name, completions: {} }])
     setNewName('')
     setIsAdding(false)
   }
