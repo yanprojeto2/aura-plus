@@ -688,8 +688,8 @@ function LinhaDoTempo() {
               title: payload.nome,
               note: `R$ ${payload.valor.toFixed(2)}${payload.categoria ? " • " + payload.categoria : ""}`,
               date: payload.data,
-              startTime: "09:00",
-              endTime: "10:00",
+              startTime: "07:00",
+              endTime: "08:00",
               syncSource: "financeiro",
             }),
           });
