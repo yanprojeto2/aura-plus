@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { LimelightNav } from "../components/ui/limelight-nav";
 import { GlowCard } from "../components/ui/spotlight-card";
+import { supabase } from "../../lib/supabase";
 
 const navLinks = [
   { label: "Menu", href: "/menu" },
@@ -28,6 +29,7 @@ interface CalEvent {
   startTime: string;
   endTime: string;
   color: string;
+  syncSource?: string | null;
 }
 
 function key(d: Date) { return d.toISOString().split("T")[0]; }
@@ -96,18 +98,35 @@ export default function CalendarioPage() {
 
   const saveEvent = async () => {
     if (!form.title.trim() || !modal) return;
-    await fetch("/api/calendar", {
+    const res = await fetch("/api/calendar", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: form.title, note: form.note, date: modal.date, startTime: form.startTime, endTime: form.endTime }),
     });
+    if (res.ok) {
+      supabase.from("financeiro_despesas").insert({
+        nome: form.title,
+        valor: 0,
+        data: modal.date,
+        status: "Pendente",
+        categoria: "Compromisso",
+      }).then(() => {});
+    }
     setModal(null);
     loadEvents();
   };
 
   const deleteEvent = async (id: string) => {
+    const ev = events.find(e => e.id === id);
     await fetch(`/api/calendar/${id}`, { method: "DELETE" });
     setEvents(prev => prev.filter(e => e.id !== id));
+    if (ev && ev.syncSource !== "financeiro") {
+      supabase.from("financeiro_despesas").delete()
+        .eq("nome", ev.title)
+        .eq("data", ev.date)
+        .eq("categoria", "Compromisso")
+        .then(() => {});
+    }
   };
 
   return (

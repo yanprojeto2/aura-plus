@@ -611,6 +611,7 @@ interface Despesa {
   data: string;
   status: StatusDespesa;
   categoria: string;
+  syncSource?: string | null;
 }
 
 const STATUS_CONFIG: Record<StatusDespesa, { label: string; bg: string; text: string }> = {
@@ -642,7 +643,7 @@ function LinhaDoTempo() {
 
   useEffect(() => {
     supabase.from("financeiro_despesas").select("*").order("created_at").then(({ data }) => {
-      if (data) setDespesas(data.map(d => ({ id: d.id, nome: d.nome, valor: d.valor, data: d.data, status: d.status as StatusDespesa, categoria: d.categoria })));
+      if (data) setDespesas(data.map(d => ({ id: d.id, nome: d.nome, valor: d.valor, data: d.data, status: d.status as StatusDespesa, categoria: d.categoria, syncSource: d.sync_source ?? null })));
     });
   }, []);
 
@@ -677,14 +678,40 @@ function LinhaDoTempo() {
       setDespesas(prev => prev.map(d => d.id === editando.id ? { ...d, ...payload } : d));
     } else {
       const { data } = await supabase.from("financeiro_despesas").insert(payload).select().single();
-      if (data) setDespesas(prev => [...prev, { id: data.id, ...payload }]);
+      if (data) {
+        setDespesas(prev => [...prev, { id: data.id, ...payload }]);
+        if (payload.categoria !== "Compromisso") {
+          fetch("/api/calendar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: payload.nome,
+              note: `R$ ${payload.valor.toFixed(2)}${payload.categoria ? " • " + payload.categoria : ""}`,
+              date: payload.data,
+              startTime: "09:00",
+              endTime: "10:00",
+              syncSource: "financeiro",
+            }),
+          });
+        }
+      }
     }
     setModal(false);
   };
 
   const excluir = async (id: number) => {
+    const despesa = despesas.find(d => d.id === id);
     setDespesas(prev => prev.filter(d => d.id !== id));
     await supabase.from("financeiro_despesas").delete().eq("id", id);
+    if (despesa && despesa.categoria !== "Compromisso") {
+      fetch(`/api/calendar?date=${despesa.data}`)
+        .then(r => r.json())
+        .then((calEvents: any[]) => {
+          const match = calEvents.find(e => e.title === despesa.nome && e.syncSource === "financeiro");
+          if (match) fetch(`/api/calendar/${match.id}`, { method: "DELETE" });
+        })
+        .catch(() => {});
+    }
   };
 
   return (
